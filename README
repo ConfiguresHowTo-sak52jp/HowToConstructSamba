@@ -15,3 +15,26 @@ Windows10ではセキュリティが厳しくなり、アクセス権を厳密�
 ただし、実験はドメインに参加していないマシンで行ったので、この手法でド
 メインに参加しているPCへマウントできるかどうかはやってみないと分からない。
 
+3. Linuxのclientからguestがやりたい放題できる設定でマウントする方法
+3-1. cifs-utilsのinstall
+クライアントとなるLinuxマシンに下記の通りインストールする。
+$ sudo apt install cifs-utils
+
+3-2. クライアントマシンでSambaディレクトリをマウントする
+下記の通り実行する。
+e.g) Samba directory: //192.168.1.6/share
+     Client machineでは /home/hoge/share にマウントする
+
+$ cd /home/hoge
+$ mkdir share
+$ sudo mount -t cifs -o \
+guest,uid=nobody,gid=nogroup,file_mode='0777',dir_mode='0777' \
+//192.168.1.6/share share
+
+上記の通り実行すれば、
+ a) パスワード聞かれない、
+ b) 全てのコンテンツのOwnerは'nobody'、'nogroup'、
+ c) 全てのコンテンツのパーミッションは'0777'、
+という条件で /home/hoge/share へマウントされる。
+つまり、ヤリタイ放題出来る共有ディレクトリとなる。
+
