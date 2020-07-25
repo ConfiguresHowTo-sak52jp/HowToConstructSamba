@@ -4,23 +4,41 @@ https://qiita.com/msrks/items/1385cf13258dd1a0da08
 上記を参照して作成したsmb.confサンプルを同梱した
 ⇛動作確認済み
 
-2. Windows10からGuest Access OKなSambaディレクトリへアクセス許可する方法
+2. Windows10でSambaディレクトリをマウントする方法
+対象のディレクトリが認証付きであるかないかによって方法が異なるので、別々
+に記載する。
+
+2-1. 認証不要(Guest Access OK)なディレクトリへのアクセス
 https://youtm-log.com/failure/pc-failure/anzendenai/
 
 Windows10ではセキュリティが厳しくなり、アクセス権を厳密に制御していな
 いようないいかげんなサーバーへの接続をデフォルトでは許可しない。そのた
 め上記を参照してローカルグループポリシーエディターの【安全でないゲスト
 ログオンを有効にする】という操作を実施すること。
+後は普通にネットワークドライブの割当操作を行えばマウントされる。
 
 ただし、実験はドメインに参加していないマシンで行ったので、この手法でド
 メインに参加しているPCへマウントできるかどうかはやってみないと分からない。
 
-3. Linuxのclientからguestがやりたい放題できる設定でマウントする方法
-3-1. cifs-utilsのinstall
-クライアントとなるLinuxマシンに下記の通りインストールする。
+2-2. 認証付きディレクトリへのアクセス
+<*** 注意 ***>
+同じサーバーにある認証不要ディレクトリを先にマウントすると、認証付きディ
+レクトリをマウントできなくなる現象が生じた。詳細な理由は分からないが、
+Windowsのリモートアクセス管理がカレントの情報に基づいて色々判断を下す
+ために、「このサーバーは認証なしの危ういやつだから、今更認証付きを要求
+しても許可してあげない」的な、判断をしているのかもしれない。自分の実験
+では、認証なしディレクトリを切断してから下記の方法を行うことで無事にマ
+ウントできた。
+
+ネットワークドライブの割当から、「他の資格情報で接続」にチェックを入れ
+る。そのあと、通常のプロンプトから対象ディレクトリのsambaユーザーアカ
+ウントで認証する。これで目出度く接続される。
+
+3. Linuxのclientでsambaディレクトリをマウントする方法
+まず、cifs-utilsをインストールする。
 $ sudo apt install cifs-utils
 
-3-2. クライアントマシンでSambaディレクトリをマウントする
+3-1. 認証不要(Guest Access OK)なディレクトリへのアクセス
 下記の通り実行する。
 e.g) Samba directory: //192.168.1.6/share
      Client machineでは /home/hoge/share にマウントする
@@ -38,3 +56,49 @@ guest,uid=nobody,gid=nogroup,file_mode='0777',dir_mode='0777' \
 という条件で /home/hoge/share へマウントされる。
 つまり、ヤリタイ放題出来る共有ディレクトリとなる。
 
+3-2. 認証付きディレクトリへのアクセス
+3-2-1. サーバー側での操作
+e.g) Samba Directory: /var/samba-share
+       valid user=samba-share
+
+下記の通り実行する
+①$ sudo useradd samba-share
+②$ sudo mkdir /var/samba-share;sudo chown samba-share:samba-share \
+/var/samba-share
+③$ sudo pdbedit -a samba-share
+ --> Passwordの入力
+④$ sudo systemctl restart smbd.service
+
+①：samba-share userを作成するがpasswordは設定しない
+②：sambaでイクスポートするディレクトリを作成する
+③：samba-shareをsamba accountに登録する。Clientからアクセスする時の認
+   証はここで設定したパスワードを用いる。
+④：smb daemonの再開
+
+3-2-2. Clientでの操作
+下記の通り実行する。
+e.g) Samba directory: //192.168.1.6/samba-share
+       user=samba-share
+       password=hogehoge0
+     Client machineでは /var/samba-share にマウントする
+     
+①$ sudo useradd samba-share
+②$ sudo mkdir -p /var/samba-share;sudo chown samba-share:samba-share \
+/var/samba-share
+③$ sudo mount -t cifs -o \
+user=samba-share,password='hogehoge0',uid=samba-share,gid=samba-share,\
+file_mode='0777',dir_mode='0777' //192.168.1.6/samba-share samba-share
+
+①：samba-share userを作成するがpasswordは設定しない
+②：マウント先となるディレクトリを作成する
+③：fileとdirectoryのアクセス権は0777としておく。そうしないと実質的に
+   Read Onlyになってしまう。ただし、rootで操作するならばfile='0644'、
+   dir='0755'に設定しても問題ない。
+
+4. まとめ
+ドメイン参加したWindows PCからアクセスすることを考えると、ドメインのセ
+キュリティポリシーとの兼ね合いから認証なしのsambaディレクトリを運用す
+ることは困難であると思われる。特に2-1でローカルグループポリシーを変更
+することを前提としているが、これはあの監視スパイソフトに検知されて面倒
+な事になるリスクもある。なので、基本的には認証ありのsambaディレクトリ
+を運用していくべきである。
